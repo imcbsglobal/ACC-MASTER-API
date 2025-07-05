@@ -1,0 +1,60 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django related
+*.log
+*.pot
+*.pyc
+*.pyo
+*.sqlite3
+*.db
+
+# ENVIRONMENT
+.env
+.env.*
+
+# Django migrations
+**/migrations/
+!**/migrations/__init__.py
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# VSCode settings
+.vscode/
+
+# PyInstaller build files
+build/
+dist/
+*.spec
+
+# Test & coverage files
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+.nox/
+.cache/
+.pytest_cache/
+
+# IDEs and Editors
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Node stuff (if you ever add frontend)
+node_modules/
+npm-debug.log*
+
+# Media / Static (optional, only ignore if collected/generated)
+media/
+staticfiles/
+
+# System files
+.DS_Store
+Thumbs.db
