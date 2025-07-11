@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord
 
+#serializer
+
 
 class IMC1Serializer(serializers.ModelSerializer):
     balance = serializers.SerializerMethodField()
