@@ -14,7 +14,7 @@ class IMC1Record(models.Model):
 
     class Meta:
         db_table = 'syncdata_imc1record'
-        managed = False
+        # managed = False
 
 
 class IMC2Record(models.Model):
@@ -30,7 +30,7 @@ class IMC2Record(models.Model):
 
     class Meta:
         db_table = 'syncdata_imc2record'
-        managed = False
+        # managed = False
 
 
 class SysmacRecord(models.Model):
@@ -46,7 +46,7 @@ class SysmacRecord(models.Model):
 
     class Meta:
         db_table = 'syncdata_sysmacinfo'
-        managed = False
+        # managed = False
 
 
 class DQRecord(models.Model):
@@ -62,4 +62,4 @@ class DQRecord(models.Model):
 
     class Meta:
         db_table = 'syncdata_dqrecord'
-        managed = False
+        # managed = False
