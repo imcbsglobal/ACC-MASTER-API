@@ -14,7 +14,7 @@ class IMC1Serializer(serializers.ModelSerializer):
         ]
 
     def get_balance(self, obj):
-        return (obj.opening_balance or 0) + (obj.debit or 0) - (obj.credit or 0)
+        return (obj.debit or 0) - (obj.credit or 0)
 
 
 class IMC2Serializer(serializers.ModelSerializer):
@@ -27,7 +27,7 @@ class IMC2Serializer(serializers.ModelSerializer):
         ]
 
     def get_balance(self, obj):
-        return (obj.opening_balance or 0) + (obj.debit or 0) - (obj.credit or 0)
+        return (obj.debit or 0) - (obj.credit or 0)
 
 class SysmacSerializer(serializers.ModelSerializer):
     balance = serializers.SerializerMethodField()
@@ -39,7 +39,7 @@ class SysmacSerializer(serializers.ModelSerializer):
         ]
 
     def get_balance(self, obj):
-        return (obj.opening_balance or 0) + (obj.debit or 0) - (obj.credit or 0)
+        return (obj.debit or 0) - (obj.credit or 0)
 
 
 class DQSerializer(serializers.ModelSerializer):
@@ -52,4 +52,4 @@ class DQSerializer(serializers.ModelSerializer):
         ]
 
     def get_balance(self, obj):
-        return (obj.opening_balance or 0) + (obj.debit or 0) - (obj.credit or 0)
+        return (obj.debit or 0) - (obj.credit or 0)
