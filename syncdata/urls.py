@@ -7,6 +7,6 @@ urlpatterns = [
     path('imc2/', IMC2RecordView.as_view()),
     path('sysmac-info/', SysmacRecordView.as_view()),
     path('dq/', DQRecordView.as_view()),
-    path('planet-clients/', PlanetClientsRecordView.as_view()),
-    path('planet-master/', PlanetMasterRecordView.as_view()),
+    path('rrc-clients/', PlanetClientsRecordView.as_view()),
+    path('sysmac/', PlanetMasterRecordView.as_view()),
 ]
