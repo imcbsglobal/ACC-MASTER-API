@@ -63,3 +63,50 @@ class DQRecord(models.Model):
     class Meta:
         db_table = 'syncdata_dqrecord'
         # managed = False
+
+
+class PlanetClient(models.Model):
+    code = models.CharField(max_length=50,primary_key=True)
+    name = models.CharField(max_length=255, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    branch = models.CharField(max_length=100, blank=True, null=True)
+    district = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=100, blank=True, null=True)
+    software = models.CharField(max_length=100, blank=True, null=True)
+    mobile = models.CharField(max_length=50, blank=True, null=True)
+    installationdate = models.DateField(blank=True, null=True)
+    priorty = models.IntegerField(blank=True, null=True)
+    directdealing = models.CharField(max_length=50, blank=True, null=True)
+    rout = models.CharField(max_length=100, blank=True, null=True)
+    amc = models.CharField(max_length=50, blank=True, null=True)
+    amcamt = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True)
+    accountcode = models.CharField(max_length=50, blank=True, null=True)
+    address3 = models.TextField(blank=True, null=True)
+    lictype = models.CharField(max_length=50, blank=True, null=True)
+    clients = models.IntegerField(blank=True, null=True)
+    sp = models.IntegerField(blank=True, null=True)
+    nature = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        managed = False  
+        db_table = 'planet_clients'
+
+
+class PlanetMaster(models.Model):
+    code = models.CharField(max_length=30, blank=False, null=False)
+    name = models.CharField(max_length=250, blank=False, null=False)
+    super_code = models.CharField(max_length=5, blank=True, null=True)
+    opening_balance = models.DecimalField(
+        max_digits=12, decimal_places=3, blank=True, null=True)
+    debit = models.DecimalField(
+        max_digits=16, decimal_places=3, blank=True, null=True)
+    credit = models.DecimalField(
+        max_digits=16, decimal_places=3, blank=True, null=True)
+    place = models.CharField(max_length=60, blank=True, null=True)
+    phone2 = models.CharField(max_length=60, blank=True, null=True)
+    openingdepartment = models.CharField(max_length=30, blank=True, null=True)
+
+    class Meta:
+        managed = False  
+        db_table = 'planet_master'
