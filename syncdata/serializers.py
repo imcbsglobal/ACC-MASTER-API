@@ -217,10 +217,12 @@ class PlanetClientsSerializer(serializers.ModelSerializer):
     priorty = serializers.IntegerField(required=False, allow_null=True)
     directdealing = serializers.CharField(
         required=False, allow_null=True, allow_blank=True)
+    directdealing_label = serializers.SerializerMethodField()
     rout = serializers.CharField(
         required=False, allow_null=True, allow_blank=True)
     amc = serializers.CharField(
         required=False, allow_null=True, allow_blank=True)
+    amc_label = serializers.SerializerMethodField()
     amcamt = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True)
     accountcode = serializers.CharField(
@@ -229,6 +231,7 @@ class PlanetClientsSerializer(serializers.ModelSerializer):
         required=False, allow_null=True, allow_blank=True)
     lictype = serializers.CharField(
         required=False, allow_null=True, allow_blank=True)
+    lictype_label = serializers.SerializerMethodField()
     clients = serializers.IntegerField(required=False, allow_null=True)
     sp = serializers.IntegerField(required=False, allow_null=True)
     nature = serializers.CharField(
@@ -237,3 +240,26 @@ class PlanetClientsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlanetClient
         fields = '__all__'
+
+    def get_directdealing_label(self, obj):
+        mapping = {
+            'Y': 'Yes',
+            'S': 'Self',
+            'N': 'Dealing No'
+        }
+        return mapping.get(obj.directdealing, 'Unknown')
+    
+    def get_amc_label(self, obj):
+        mapping = {
+            'F': 'Free',
+            'A': 'SUC',
+            'S': 'Service Charge'
+        }
+        return mapping.get(obj.amc, 'Unknown')
+    
+    def get_lictype_label(self, obj):
+        mapping = {
+            'E': 'Enterprise',
+            'P': 'Professional'
+        }
+        return mapping.get(obj.lictype, 'Unknown')
