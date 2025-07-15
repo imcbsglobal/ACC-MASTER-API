@@ -1,10 +1,55 @@
 from rest_framework import serializers
-from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient
+from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, PlanetLedgers, SysmacRecordLedgers, DQRecordsLedgers
 import logging
+from decimal import Decimal, InvalidOperation
+from datetime import datetime
 import json
 
 # Get logger
 logger = logging.getLogger(__name__)
+
+class BaseLedgerSerializer(serializers.ModelSerializer):
+    """Base serializer for all ledger models with common field handling"""
+    
+    def to_internal_value(self, data):
+        # Handle date field conversion
+        if 'entry_date' in data and data['entry_date']:
+            try:
+                if isinstance(data['entry_date'], str):
+                    # Try different date formats
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                        try:
+                            parsed_date = datetime.strptime(data['entry_date'], fmt).date()
+                            data['entry_date'] = parsed_date.strftime('%Y-%m-%d')
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        # If none of the formats work, set to None
+                        logger.warning(f"Could not parse date: {data['entry_date']}")
+                        data['entry_date'] = None
+            except Exception as e:
+                logger.warning(f"Date parsing error: {e}")
+                data['entry_date'] = None
+        
+        # Handle decimal fields
+        for field in ['debit', 'credit', 'voucher_no']:
+            if field in data and data[field] is not None:
+                try:
+                    if isinstance(data[field], str) and data[field].strip() == '':
+                        data[field] = None
+                    elif data[field] is not None:
+                        data[field] = Decimal(str(data[field]))
+                except (ValueError, InvalidOperation):
+                    logger.warning(f"Could not convert {field} to decimal: {data[field]}")
+                    data[field] = None
+        
+        # Handle string fields - convert None to empty string
+        for field in ['code', 'particulars', 'entry_mode', 'narration']:
+            if field in data and data[field] is None:
+                data[field] = ''
+        
+        return super().to_internal_value(data)
 
 class IMC1Serializer(serializers.ModelSerializer):
     # Handle null values explicitly
@@ -43,6 +88,19 @@ class IMC1Serializer(serializers.ModelSerializer):
             data['openingdepartment'] = ''
         return super().to_internal_value(data)
 
+class IMC1LedgersSerializer(BaseLedgerSerializer):
+    entry_date = serializers.DateField(required=False, allow_null=True)
+    debit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    voucher_no = serializers.DecimalField(max_digits=12, decimal_places=0, required=False, allow_null=True)
+    code = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    entry_mode = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    narration = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    
+    class Meta:
+        model = IMC1RecordLedgers
+        fields = '__all__'
 
 class IMC2Serializer(serializers.ModelSerializer):
     # Handle null values explicitly
@@ -81,6 +139,19 @@ class IMC2Serializer(serializers.ModelSerializer):
             data['openingdepartment'] = ''
         return super().to_internal_value(data)
 
+class IMC2LedgersSerializer(BaseLedgerSerializer):
+    entry_date = serializers.DateField(required=False, allow_null=True)
+    debit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    voucher_no = serializers.DecimalField(max_digits=12, decimal_places=0, required=False, allow_null=True)
+    code = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    entry_mode = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    narration = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    
+    class Meta:
+        model = IMC2RecordLedgers
+        fields = '__all__'
 
 class SysmacSerializer(serializers.ModelSerializer):
     # Handle null values explicitly
@@ -118,6 +189,20 @@ class SysmacSerializer(serializers.ModelSerializer):
         if data.get('openingdepartment') is None:
             data['openingdepartment'] = ''
         return super().to_internal_value(data)
+    
+class SysmacLedgersSerializer(BaseLedgerSerializer):
+    entry_date = serializers.DateField(required=False, allow_null=True)
+    debit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    voucher_no = serializers.DecimalField(max_digits=12, decimal_places=0, required=False, allow_null=True)
+    code = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    entry_mode = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    narration = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    
+    class Meta:
+        model = SysmacRecordLedgers
+        fields = '__all__'
 
 
 class DQSerializer(serializers.ModelSerializer):
@@ -158,6 +243,21 @@ class DQSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
     
 
+class DQLedgersSerializer(BaseLedgerSerializer):
+    entry_date = serializers.DateField(required=False, allow_null=True)
+    debit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    voucher_no = serializers.DecimalField(max_digits=12, decimal_places=0, required=False, allow_null=True)
+    code = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    entry_mode = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    narration = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    
+    class Meta:
+        model = DQRecordsLedgers
+        fields = '__all__'
+
+    
 class PlanetMasterSerializer(serializers.ModelSerializer):
     # Handle null values explicitly
     opening_balance = serializers.FloatField(allow_null=True, default=0.0)
@@ -195,6 +295,21 @@ class PlanetMasterSerializer(serializers.ModelSerializer):
         if data.get('openingdepartment') is None:
             data['openingdepartment'] = ''
         return super().to_internal_value(data)
+    
+
+class PlanetLedgersSerializer(BaseLedgerSerializer):
+    entry_date = serializers.DateField(required=False, allow_null=True)
+    debit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    voucher_no = serializers.DecimalField(max_digits=12, decimal_places=0, required=False, allow_null=True)
+    code = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    entry_mode = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    narration = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    
+    class Meta:
+        model = PlanetLedgers
+        fields = '__all__'
 
 class PlanetClientsSerializer(serializers.ModelSerializer):
     code = serializers.CharField(

@@ -2,13 +2,227 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
-from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient
-from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer
+from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetLedgers
+from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer, IMC1LedgersSerializer, IMC2LedgersSerializer, SysmacLedgersSerializer, DQLedgersSerializer, PlanetLedgersSerializer
 import logging
 import json
 import traceback
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
+
+class BaseLedgersView(APIView):
+    """Base class for all ledgers views with common functionality"""
+    
+    model = None
+    serializer_class = None
+    record_type = None
+    
+    def clean_record(self, record):
+        """Clean and validate individual record before serialization"""
+        cleaned = record.copy()
+        
+        # Handle date fields
+        if 'entry_date' in cleaned:
+            if cleaned['entry_date'] is None or cleaned['entry_date'] == '':
+                cleaned['entry_date'] = None
+            elif isinstance(cleaned['entry_date'], str):
+                # Try to parse various date formats
+                date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%d-%m-%Y']
+                for fmt in date_formats:
+                    try:
+                        parsed_date = datetime.strptime(cleaned['entry_date'], fmt).date()
+                        cleaned['entry_date'] = parsed_date.strftime('%Y-%m-%d')
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    logger.warning(f"Could not parse date: {cleaned['entry_date']}")
+                    cleaned['entry_date'] = None
+        
+        # Handle decimal fields
+        decimal_fields = ['debit', 'credit', 'voucher_no']
+        for field in decimal_fields:
+            if field in cleaned:
+                if cleaned[field] is None or cleaned[field] == '':
+                    cleaned[field] = None
+                else:
+                    try:
+                        cleaned[field] = str(Decimal(str(cleaned[field])))
+                    except (ValueError, InvalidOperation, TypeError):
+                        logger.warning(f"Could not convert {field} to decimal: {cleaned[field]}")
+                        cleaned[field] = None
+        
+        # Handle string fields
+        string_fields = ['code', 'particulars', 'entry_mode', 'narration']
+        for field in string_fields:
+            if field in cleaned:
+                if cleaned[field] is None:
+                    cleaned[field] = '' if field != 'code' else None  # code is required
+                else:
+                    cleaned[field] = str(cleaned[field]).strip()
+        
+        # Validate required fields
+        if not cleaned.get('code'):
+            return None  # Invalid record without code
+        
+        return cleaned
+    
+    def process_in_chunks(self, data, chunk_size=500):
+        """Process data in smaller chunks to identify problematic records"""
+        total_records = len(data)
+        processed_count = 0
+        failed_records = []
+        
+        logger.info(f"{self.record_type} - Processing {total_records} records in chunks of {chunk_size}")
+        
+        for i in range(0, total_records, chunk_size):
+            chunk = data[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            
+            logger.info(f"{self.record_type} - Processing chunk {chunk_num} ({len(chunk)} records)")
+            
+            # Clean each record in the chunk
+            cleaned_chunk = []
+            for idx, record in enumerate(chunk):
+                cleaned_record = self.clean_record(record)
+                if cleaned_record is not None:
+                    cleaned_chunk.append(cleaned_record)
+                else:
+                    failed_records.append({
+                        'index': i + idx,
+                        'record': record,
+                        'error': 'Missing required field: code'
+                    })
+            
+            if not cleaned_chunk:
+                logger.warning(f"{self.record_type} - Chunk {chunk_num} has no valid records")
+                continue
+            
+            # Try to serialize the chunk
+            serializer = self.serializer_class(data=cleaned_chunk, many=True)
+            if serializer.is_valid():
+                try:
+                    # Create model instances
+                    records = [self.model(**item) for item in serializer.validated_data]
+                    self.model.objects.bulk_create(records, batch_size=1000)
+                    processed_count += len(records)
+                    logger.info(f"{self.record_type} - Successfully processed chunk {chunk_num} ({len(records)} records)")
+                except Exception as e:
+                    logger.error(f"{self.record_type} - Database error in chunk {chunk_num}: {str(e)}")
+                    # Try individual record processing for this chunk
+                    individual_count = self.process_individual_records(cleaned_chunk)
+                    processed_count += individual_count
+            else:
+                logger.error(f"{self.record_type} - Serialization failed for chunk {chunk_num}")
+                # Process individual records to identify specific issues
+                individual_count = self.process_individual_records(cleaned_chunk)
+                processed_count += individual_count
+        
+        return processed_count, failed_records
+    
+    def process_individual_records(self, records):
+        """Process records individually to identify specific issues"""
+        processed_count = 0
+        
+        for idx, record in enumerate(records):
+            try:
+                serializer = self.serializer_class(data=record)
+                if serializer.is_valid():
+                    model_instance = self.model(**serializer.validated_data)
+                    model_instance.save()
+                    processed_count += 1
+                else:
+                    logger.error(f"{self.record_type} - Record {idx} validation failed: {serializer.errors}")
+                    logger.error(f"{self.record_type} - Problematic record: {json.dumps(record, indent=2, default=str)}")
+            except Exception as e:
+                logger.error(f"{self.record_type} - Exception processing record {idx}: {str(e)}")
+                logger.error(f"{self.record_type} - Record data: {json.dumps(record, indent=2, default=str)}")
+        
+        return processed_count
+    
+    def post(self, request):
+        data = request.data
+        
+        # Validate input
+        if not isinstance(data, list):
+            logger.error(f"{self.record_type} - Expected a list of records")
+            return Response({"error": "Expected a list of records"}, status=400)
+        
+        if not data:
+            logger.warning(f"{self.record_type} - Received empty data")
+            return Response({"message": f"{self.record_type} - No records to process"}, status=200)
+        
+        logger.info(f"{self.record_type} - Received {len(data)} records")
+        
+        # Log sample records
+        for i, sample in enumerate(data[:2]):
+            logger.info(f"{self.record_type} - Sample Record {i+1}: {json.dumps(sample, indent=2, default=str)}")
+        
+        try:
+            with transaction.atomic():
+                # Clear existing records
+                self.model.objects.all().delete()
+                
+                # Process records in chunks
+                processed_count, failed_records = self.process_in_chunks(data)
+                
+                # Log results
+                logger.info(f"{self.record_type} - Successfully processed {processed_count} out of {len(data)} records")
+                
+                if failed_records:
+                    logger.warning(f"{self.record_type} - {len(failed_records)} records failed validation")
+                    for failed in failed_records[:5]:  # Log first 5 failed records
+                        logger.warning(f"Failed record at index {failed['index']}: {failed['error']}")
+                
+                return Response({
+                    "message": f"{self.record_type} records processed",
+                    "processed_count": processed_count,
+                    "total_count": len(data),
+                    "failed_count": len(failed_records)
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            logger.error(f"{self.record_type} - Critical error: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({"error": "Internal server error"}, status=500)
+    
+    def get(self, request):
+        records = self.model.objects.all()
+        serializer = self.serializer_class(records, many=True)
+        return Response(serializer.data)
+
+
+class IMC1LedgersView(BaseLedgersView):
+    model = IMC1RecordLedgers
+    serializer_class = IMC1LedgersSerializer
+    record_type = "IMC1 Ledgers"
+
+
+class IMC2LedgersView(BaseLedgersView):
+    model = IMC2RecordLedgers
+    serializer_class = IMC2LedgersSerializer
+    record_type = "IMC2 Ledgers"
+
+
+class SysmacLedgersView(BaseLedgersView):
+    model = SysmacRecordLedgers
+    serializer_class = SysmacLedgersSerializer
+    record_type = "Sysmac Ledgers"
+
+
+class DQLedgersView(BaseLedgersView):
+    model = DQRecordsLedgers
+    serializer_class = DQLedgersSerializer
+    record_type = "DQ Ledgers"
+
+
+class PlanetLedgersView(BaseLedgersView):
+    model = PlanetLedgers
+    serializer_class = PlanetLedgersSerializer
+    record_type = "Planet Ledgers"
+
 
 class IMC1RecordView(APIView):
     def post(self, request):
@@ -31,6 +245,8 @@ class IMC1RecordView(APIView):
         serializer = IMC1Serializer(records, many=True)
         return Response(serializer.data)
 
+
+
 class IMC2RecordView(APIView):
     def post(self, request):
         logger.info(f"IMC2 - Received {len(request.data)} records")
@@ -51,6 +267,7 @@ class IMC2RecordView(APIView):
         records = IMC2Record.objects.all()
         serializer = IMC2Serializer(records, many=True)
         return Response(serializer.data)
+    
 
 class SysmacRecordView(APIView):
     def post(self, request):
@@ -83,7 +300,8 @@ class SysmacRecordView(APIView):
         records = SysmacRecord.objects.all()
         serializer = SysmacSerializer(records, many=True)
         return Response(serializer.data)
-
+    
+    
 class DQRecordView(APIView):
     def post(self, request):
         logger.info(f"DQ - Received {len(request.data)} records")
@@ -115,7 +333,7 @@ class DQRecordView(APIView):
         records = DQRecord.objects.all()
         serializer = DQSerializer(records, many=True)
         return Response(serializer.data)
-    
+
 
 class PlanetMasterRecordView(APIView):
     def post(self, request):
@@ -144,6 +362,7 @@ class PlanetMasterRecordView(APIView):
         records = PlanetMaster.objects.all()
         serializer = PlanetMasterSerializer(records, many=True)
         return Response(serializer.data)
+    
 
 
 

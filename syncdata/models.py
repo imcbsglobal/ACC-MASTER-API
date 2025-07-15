@@ -16,6 +16,19 @@ class IMC1Record(models.Model):
         db_table = 'syncdata_imc1record'
         # managed = False
 
+class IMC1RecordLedgers(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)
+    particulars = models.CharField(max_length=250, null=True, blank=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    entry_mode = models.CharField(max_length=30, null=True, blank=True)
+    entry_date = models.DateField(null=True, blank=True)
+    voucher_no = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
+    narration = models.CharField(max_length=250, null=True, blank=True)
+
+    class Meta:
+        db_table = "syncdata_imc1recordledgers"
+        managed = False
 
 class IMC2Record(models.Model):
     code = models.CharField(max_length=100)
@@ -31,6 +44,20 @@ class IMC2Record(models.Model):
     class Meta:
         db_table = 'syncdata_imc2record'
         # managed = False
+
+class IMC2RecordLedgers(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)
+    particulars = models.CharField(max_length=250, null=True, blank=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    entry_mode = models.CharField(max_length=30, null=True, blank=True)
+    entry_date = models.DateField(null=True, blank=True)
+    voucher_no = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
+    narration = models.CharField(max_length=250, null=True, blank=True)
+
+    class Meta:
+        db_table = "syncdata_imc2recordledgers"
+        managed = False
 
 
 class SysmacRecord(models.Model):
@@ -48,6 +75,20 @@ class SysmacRecord(models.Model):
         db_table = 'syncdata_sysmacinfo'
         # managed = False
 
+class SysmacRecordLedgers(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)
+    particulars = models.CharField(max_length=250, null=True, blank=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    entry_mode = models.CharField(max_length=30, null=True, blank=True)
+    entry_date = models.DateField(null=True, blank=True)
+    voucher_no = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
+    narration = models.CharField(max_length=250, null=True, blank=True)
+
+    class Meta:
+        db_table = "syncdata_sysmacinfoledgers"
+        managed = False
+
 
 class DQRecord(models.Model):
     code = models.CharField(max_length=100)
@@ -64,6 +105,19 @@ class DQRecord(models.Model):
         db_table = 'syncdata_dqrecord'
         # managed = False
 
+class DQRecordsLedgers(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)
+    particulars = models.CharField(max_length=250, null=True, blank=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    entry_mode = models.CharField(max_length=30, null=True, blank=True)
+    entry_date = models.DateField(null=True, blank=True)
+    voucher_no = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
+    narration = models.CharField(max_length=250, null=True, blank=True)
+
+    class Meta:
+        db_table = "syncdata_dqrecordledgers"
+        managed = False
 
 class PlanetClient(models.Model):
     code = models.CharField(max_length=50,primary_key=True)
@@ -110,3 +164,17 @@ class PlanetMaster(models.Model):
     class Meta:
         managed = False  
         db_table = 'planet_master'
+
+class PlanetLedgers(models.Model):
+    code = models.CharField(max_length=30 , primary_key=True)
+    particulars = models.CharField(max_length=250, null=True, blank=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, null=True, blank=True)
+    entry_mode = models.CharField(max_length=30, null=True, blank=True)
+    entry_date = models.DateField(null=True, blank=True)
+    voucher_no = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
+    narration = models.CharField(max_length=250, null=True, blank=True)
+
+    class Meta:
+        db_table = "planet_ledgers"
+        managed = False
