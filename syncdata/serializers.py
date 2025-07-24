@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, PlanetLedgers, SysmacRecordLedgers, DQRecordsLedgers
+from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, PlanetLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast
 import logging
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
@@ -378,3 +378,79 @@ class PlanetClientsSerializer(serializers.ModelSerializer):
             'P': 'Professional'
         }
         return mapping.get(obj.lictype, 'Unknown')
+
+
+
+class BaseInvMastSerializer(serializers.ModelSerializer):
+    """Base serializer for all invoice master models with common field handling"""
+    
+    modeofpayment = serializers.CharField(max_length=1, allow_null=True, allow_blank=True, required=False)
+    customerid = serializers.CharField(max_length=50, allow_null=True, allow_blank=True, required=False)  # Increased from 5 to 50
+    invdate = serializers.DateField(allow_null=True, required=False)
+    nettotal = serializers.DecimalField(max_digits=12, decimal_places=3, allow_null=True, required=False)
+    paid = serializers.DecimalField(max_digits=12, decimal_places=3, allow_null=True, required=False)
+    bill_ref = serializers.CharField(max_length=20, allow_null=True, allow_blank=True, required=False)
+    
+    def to_internal_value(self, data):
+        # Handle date field conversion
+        if 'invdate' in data and data['invdate']:
+            try:
+                if isinstance(data['invdate'], str):
+                    # Try different date formats
+                    for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S']:
+                        try:
+                            parsed_date = datetime.strptime(data['invdate'], fmt).date()
+                            data['invdate'] = parsed_date.strftime('%Y-%m-%d')
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        logger.warning(f"Could not parse invdate: {data['invdate']}")
+                        data['invdate'] = None
+            except Exception as e:
+                logger.warning(f"InvDate parsing error: {e}")
+                data['invdate'] = None
+        
+        # Handle decimal fields
+        for field in ['nettotal', 'paid']:
+            if field in data and data[field] is not None:
+                try:
+                    if isinstance(data[field], str) and data[field].strip() == '':
+                        data[field] = None
+                    elif data[field] is not None:
+                        data[field] = Decimal(str(data[field]))
+                except (ValueError, InvalidOperation):
+                    logger.warning(f"Could not convert {field} to decimal: {data[field]}")
+                    data[field] = None
+        
+        # Handle string fields - convert None to empty string
+        for field in ['modeofpayment', 'customerid', 'bill_ref']:
+            if field in data and data[field] is None:
+                data[field] = ''
+        
+        return super().to_internal_value(data)
+
+class PlanetInvMastSerializer(BaseInvMastSerializer):
+    class Meta:
+        model = PlanetInvMast
+        fields = '__all__'
+
+class IMC1InvMastSerializer(BaseInvMastSerializer):
+    class Meta:
+        model = IMC1InvMast
+        fields = '__all__'
+
+class IMC2InvMastSerializer(BaseInvMastSerializer):
+    class Meta:
+        model = IMC2InvMast
+        fields = '__all__'
+
+class SysmacInvMastSerializer(BaseInvMastSerializer):
+    class Meta:
+        model = SysmacInvMast
+        fields = '__all__'
+
+class DQInvMastSerializer(BaseInvMastSerializer):
+    class Meta:
+        model = DQInvMast
+        fields = '__all__'

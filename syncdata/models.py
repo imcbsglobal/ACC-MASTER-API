@@ -178,3 +178,49 @@ class PlanetLedgers(models.Model):
     class Meta:
         db_table = "planet_ledgers"
         managed = False
+
+
+
+class BaseInvMastModel(models.Model):
+    """Base model for all invoice master tables with common fields"""
+    modeofpayment = models.CharField(max_length=1, null=True, blank=True)
+    customerid = models.CharField(max_length=50, primary_key=True)  # Increased from 5 to 50
+    invdate = models.DateField(null=True, blank=True)
+    nettotal = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    paid = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
+    bill_ref = models.CharField(max_length=50, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+class ManagedInvMastModel(BaseInvMastModel):
+    """Base model for managed tables with synced_at field"""
+    
+    class Meta:
+        abstract = True
+        managed = True
+
+class PlanetInvMast(BaseInvMastModel):  
+    class Meta:
+        db_table = 'planet_invmast'
+        managed = True
+
+class IMC1InvMast(ManagedInvMastModel):  
+    class Meta:
+        db_table = 'syncdata_imc1mast'
+        managed = True
+
+class IMC2InvMast(ManagedInvMastModel):  
+    class Meta:
+        db_table = 'syncdata_imc2mast'
+        managed = True
+
+class SysmacInvMast(ManagedInvMastModel):  
+    class Meta:
+        db_table = 'syncdata_sysmacinfo_mast'
+        managed = True
+
+class DQInvMast(ManagedInvMastModel):  
+    class Meta:
+        db_table = 'syncdata_dqrecord_mast'
+        managed = True
