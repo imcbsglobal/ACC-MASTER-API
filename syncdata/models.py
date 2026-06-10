@@ -141,6 +141,9 @@ class PlanetClient(models.Model):
     clients = models.IntegerField(blank=True, null=True)
     sp = models.IntegerField(blank=True, null=True)
     nature = models.CharField(max_length=255, blank=True, null=True)
+    # client_id tags which DSN/client this row was synced from.
+    # ADD COLUMN: ALTER TABLE planet_clients ADD COLUMN client_id VARCHAR(50) NOT NULL DEFAULT '';
+    client_id = models.CharField(max_length=50, blank=True, default='')
 
     class Meta:
         managed = False  
@@ -178,6 +181,57 @@ class PlanetLedgers(models.Model):
     class Meta:
         db_table = "planet_ledgers"
         managed = False
+
+
+
+# ── Add these two models to your existing models.py ──────────────────────────
+# Both tables already exist in the DB (managed = False), so no migration needed.
+
+class AccMaster(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)   # FIX: explicit PK, no phantom id column
+    name = models.CharField(max_length=250)
+    super_code = models.CharField(max_length=5, blank=True, null=True)
+    opening_balance = models.DecimalField(
+        max_digits=12, decimal_places=3, blank=True, null=True)
+    debit = models.DecimalField(
+        max_digits=16, decimal_places=3, blank=True, null=True)
+    credit = models.DecimalField(
+        max_digits=16, decimal_places=3, blank=True, null=True)
+    place = models.CharField(max_length=60, blank=True, null=True)
+    phone2 = models.CharField(max_length=60, blank=True, null=True)
+    openingdepartment = models.CharField(max_length=30, blank=True, null=True)
+    # client_id tags which DSN/client this row was synced from.
+    # ADD COLUMN: ALTER TABLE acc_master ADD COLUMN client_id VARCHAR(50) NOT NULL DEFAULT '';
+    client_id = models.CharField(max_length=50, blank=True, default='')
+
+    class Meta:
+        managed = False          # Table already exists; Django won't migrate it
+        db_table = 'acc_master'
+
+    def __str__(self):
+        return self.name
+
+
+class AccProduct(models.Model):
+    code = models.CharField(max_length=30, primary_key=True)   # FIX: explicit PK, no phantom id column
+    name = models.CharField(max_length=200, blank=True, null=True)
+    catagory = models.CharField(max_length=20, blank=True, null=True)
+    unit = models.CharField(max_length=10, blank=True, null=True)
+    taxcode = models.CharField(max_length=5, blank=True, null=True)
+    company = models.CharField(max_length=30, blank=True, null=True)
+    product = models.CharField(max_length=30, blank=True, null=True)
+    brand = models.CharField(max_length=30, blank=True, null=True)
+    text6 = models.CharField(max_length=40, blank=True, null=True)
+    # client_id tags which DSN/client this row was synced from.
+    # ADD COLUMN: ALTER TABLE acc_product ADD COLUMN client_id VARCHAR(50) NOT NULL DEFAULT '';
+    client_id = models.CharField(max_length=50, blank=True, default='')
+
+    class Meta:
+        managed = False          # Table already exists; Django won't migrate it
+        db_table = 'acc_product'
+
+    def __str__(self):
+        return self.name or self.code        
 
 
 

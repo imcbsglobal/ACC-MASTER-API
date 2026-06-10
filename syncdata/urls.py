@@ -2,7 +2,7 @@
 
 from django.urls import path
 from .views import (
-    IMC1RecordView, IMC1LedgersView, IMC1InvMastView,
+    AccMasterView, AccProductView, IMC1RecordView, IMC1LedgersView, IMC1InvMastView,
     IMC2RecordView, IMC2LedgersView, IMC2InvMastView,
     SysmacRecordView, SysmacLedgersView, SysmacInvMastView,
     DQRecordView, DQLedgersView, DQInvMastView,
@@ -32,4 +32,6 @@ urlpatterns = [
     path('sysmac-invmast/', PlanetInvMastView.as_view()),
     
     path('rrc-clients/', PlanetClientsRecordView.as_view()),
+    path('acc-master/',  AccMasterView.as_view()),
+    path('acc-product/', AccProductView.as_view()),
 ]

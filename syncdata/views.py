@@ -2,8 +2,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
-from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetLedgers, PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast
-from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer, IMC1LedgersSerializer, IMC2LedgersSerializer, SysmacLedgersSerializer, DQLedgersSerializer, PlanetLedgersSerializer, PlanetInvMastSerializer, IMC1InvMastSerializer, IMC2InvMastSerializer, SysmacInvMastSerializer, DQInvMastSerializer
+from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetLedgers, PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast , AccMaster, AccProduct
+from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer, IMC1LedgersSerializer, IMC2LedgersSerializer, SysmacLedgersSerializer, DQLedgersSerializer, PlanetLedgersSerializer, PlanetInvMastSerializer, IMC1InvMastSerializer, IMC2InvMastSerializer, SysmacInvMastSerializer, DQInvMastSerializer ,AccMasterSerializer, AccProductSerializer
 import logging
 import json
 import traceback
@@ -104,13 +104,23 @@ class BaseLedgersView(APIView):
             serializer = self.serializer_class(data=cleaned_chunk, many=True)
             if serializer.is_valid():
                 try:
-                    # Create model instances
-                    records = [self.model(**item) for item in serializer.validated_data]
-                    self.model.objects.bulk_create(records, batch_size=1000)
-                    processed_count += len(records)
-                    logger.info(f"{self.record_type} - Successfully processed chunk {chunk_num} ({len(records)} records)")
+                    # Use raw SQL insert to avoid ORM id lookup on managed=False tables
+                    from django.db import connection as _conn
+                    fields = [f.column for f in self.model._meta.concrete_fields if not f.primary_key or not f.auto_created]
+                    placeholders = ', '.join(['%s'] * len(fields))
+                    col_names = ', '.join(fields)
+                    sql = f"INSERT INTO {self.model._meta.db_table} ({col_names}) VALUES ({placeholders})"
+                    rows = [
+                        tuple(item.get(f.attname, None) for f in self.model._meta.concrete_fields if not f.primary_key or not f.auto_created)
+                        for item in serializer.validated_data
+                    ]
+                    with _conn.cursor() as _cur:
+                        _cur.executemany(sql, rows)
+                    processed_count += len(rows)
+                    logger.info(f"{self.record_type} - Successfully processed chunk {chunk_num} ({len(rows)} records)")
                 except Exception as e:
                     logger.error(f"{self.record_type} - Database error in chunk {chunk_num}: {str(e)}")
+                    logger.error(traceback.format_exc())
                     # Try individual record processing for this chunk
                     individual_count = self.process_individual_records(cleaned_chunk)
                     processed_count += individual_count
@@ -162,8 +172,10 @@ class BaseLedgersView(APIView):
         
         try:
             with transaction.atomic():
-                # Clear existing records
-                self.model.objects.all().delete()
+                # Clear existing records — use raw SQL to avoid ORM id lookup on managed=False tables
+                from django.db import connection as _conn
+                with _conn.cursor() as _cur:
+                    _cur.execute(f"DELETE FROM {self.model._meta.db_table}")
                 
                 # Process records in chunks
                 processed_count, failed_records = self.process_in_chunks(data)
@@ -229,12 +241,17 @@ class IMC1RecordView(APIView):
         logger.info(f"IMC1 - Received {len(request.data)} records")
         serializer = IMC1Serializer(data=request.data, many=True)
         if serializer.is_valid():
-            with transaction.atomic(): 
-                IMC1Record.objects.all().delete()
-                records = [IMC1Record(**item) for item in serializer.validated_data]
-                IMC1Record.objects.bulk_create(records, batch_size=1000)
-            logger.info(f"Saved {len(records)} IMC-1 records")
-            return Response({"message": "IMC-1 records saved"}, status=status.HTTP_201_CREATED)
+            try:
+                with transaction.atomic():
+                    IMC1Record.objects.all().delete()
+                    records = [IMC1Record(**item) for item in serializer.validated_data]
+                    IMC1Record.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"Saved {len(records)} IMC-1 records")
+                return Response({"message": "IMC-1 records saved"}, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"IMC1 DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error", "detail": str(e)}, status=500)
         
         # Enhanced error logging
         logger.error(f"IMC1 Validation Errors: {json.dumps(serializer.errors, indent=2)}")
@@ -252,12 +269,17 @@ class IMC2RecordView(APIView):
         logger.info(f"IMC2 - Received {len(request.data)} records")
         serializer = IMC2Serializer(data=request.data, many=True)
         if serializer.is_valid():
-            with transaction.atomic():
-                IMC2Record.objects.all().delete()
-                records = [IMC2Record(**item) for item in serializer.validated_data]
-                IMC2Record.objects.bulk_create(records, batch_size=1000)
-            logger.info(f"Saved {len(records)} IMC-2 records")
-            return Response({"message": "IMC-2 records saved"}, status=status.HTTP_201_CREATED)
+            try:
+                with transaction.atomic():
+                    IMC2Record.objects.all().delete()
+                    records = [IMC2Record(**item) for item in serializer.validated_data]
+                    IMC2Record.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"Saved {len(records)} IMC-2 records")
+                return Response({"message": "IMC-2 records saved"}, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"IMC2 DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error", "detail": str(e)}, status=500)
         
         # Enhanced error logging
         logger.error(f"IMC2 Validation Errors: {json.dumps(serializer.errors, indent=2)}")
@@ -279,12 +301,17 @@ class SysmacRecordView(APIView):
         
         serializer = SysmacSerializer(data=request.data, many=True)
         if serializer.is_valid():
-            with transaction.atomic():
-                SysmacRecord.objects.all().delete()
-                records = [SysmacRecord(**item) for item in serializer.validated_data]
-                SysmacRecord.objects.bulk_create(records, batch_size=1000)
-            logger.info(f"Saved {len(records)} Sysmac records")
-            return Response({"message": "Sysmac records saved"}, status=status.HTTP_201_CREATED)
+            try:
+                with transaction.atomic():
+                    SysmacRecord.objects.all().delete()
+                    records = [SysmacRecord(**item) for item in serializer.validated_data]
+                    SysmacRecord.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"Saved {len(records)} Sysmac records")
+                return Response({"message": "Sysmac records saved"}, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"Sysmac DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error", "detail": str(e)}, status=500)
         
         # Enhanced error logging
         logger.error(f"Sysmac Validation Errors: {json.dumps(serializer.errors, indent=2)}")
@@ -312,12 +339,17 @@ class DQRecordView(APIView):
         
         serializer = DQSerializer(data=request.data, many=True)
         if serializer.is_valid():
-            with transaction.atomic():
-                DQRecord.objects.all().delete()
-                records = [DQRecord(**item) for item in serializer.validated_data]
-                DQRecord.objects.bulk_create(records, batch_size=1000)
-            logger.info(f"Saved {len(records)} DQ records")
-            return Response({"message": "DQ records saved"}, status=status.HTTP_201_CREATED)
+            try:
+                with transaction.atomic():
+                    DQRecord.objects.all().delete()
+                    records = [DQRecord(**item) for item in serializer.validated_data]
+                    DQRecord.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"Saved {len(records)} DQ records")
+                return Response({"message": "DQ records saved"}, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"DQ DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error", "detail": str(e)}, status=500)
         
         # Enhanced error logging
         logger.error(f"DQ Validation Errors: {json.dumps(serializer.errors, indent=2)}")
@@ -342,9 +374,15 @@ class PlanetMasterRecordView(APIView):
             serializer = PlanetMasterSerializer(data=request.data, many=True)
             if serializer.is_valid():
                 with transaction.atomic():
-                    PlanetMaster.objects.all().delete()
-                    records = [PlanetMaster(**item) for item in serializer.validated_data]
-                    PlanetMaster.objects.bulk_create(records, batch_size=1000)
+                    from django.db import connection as _conn
+                    with _conn.cursor() as _cur:
+                        _cur.execute("DELETE FROM planet_master")
+                        fields = [f.column for f in PlanetMaster._meta.concrete_fields if not f.primary_key or not f.auto_created]
+                        placeholders = ', '.join(['%s'] * len(fields))
+                        col_names = ', '.join(fields)
+                        rows = [tuple(item.get(f.attname, None) for f in PlanetMaster._meta.concrete_fields if not f.primary_key or not f.auto_created) for item in serializer.validated_data]
+                        _cur.executemany(f"INSERT INTO planet_master ({col_names}) VALUES ({placeholders})", rows)
+                records = serializer.validated_data
                 logger.info(f"Saved {len(records)} PLANET_MASTER records")
                 return Response({"message": "PLANET_MASTER records saved"}, status=status.HTTP_201_CREATED)
 
@@ -367,57 +405,111 @@ class PlanetMasterRecordView(APIView):
 
 
 class PlanetClientsRecordView(APIView):
+    """
+    POST  – deletes planet_clients rows for the given client_id, then inserts
+            fresh records tagged with that client_id.
+            client_id is read from X-Client-ID header or ?client_id= query param.
+    GET   – returns records, optionally filtered by ?client_id=.
+    DELETE– removes all rows for a client_id (truncate step from sync tool).
+    """
+
+    def _get_client_id(self, request):
+        return (
+            request.headers.get("X-Client-ID", "").strip()
+            or request.query_params.get("client_id", "").strip()
+        )
+
     def post(self, request):
         try:
-            logger.info(f"PLANET_CLIENTS - Received {len(request.data)} records")
-            
-            # Log first few records to see data structure
+            client_id = self._get_client_id(request)
+            logger.info(f"PLANET_CLIENTS - Received {len(request.data)} records "
+                        f"(client_id={client_id!r})")
+
             for i, record in enumerate(request.data[:2]):
                 logger.info(f"Sample record {i}: {json.dumps(record, indent=2, default=str)}")
-            
-            serializer = PlanetClientsSerializer(data=request.data, many=True)
+
+            # Inject client_id into every record
+            tagged = []
+            for rec in request.data:
+                r = dict(rec)
+                r.setdefault("client_id", client_id)
+                tagged.append(r)
+
+            serializer = PlanetClientsSerializer(data=tagged, many=True)
             if serializer.is_valid():
                 with transaction.atomic():
-                    PlanetClient.objects.all().delete()
-                    records = [PlanetClient(**item) for item in serializer.validated_data]
-                    PlanetClient.objects.bulk_create(records, batch_size=1000)
-                logger.info(f"Saved {len(records)} PLANET_CLIENTS records")
-                return Response({"message": "PLANET_CLIENTS records saved"}, status=status.HTTP_201_CREATED)
+                    from django.db import connection as _conn
+                    with _conn.cursor() as _cur:
+                        # Delete only this client's rows (or all if no client_id)
+                        if client_id:
+                            _cur.execute(
+                                "DELETE FROM planet_clients WHERE client_id = %s",
+                                [client_id]
+                            )
+                        else:
+                            _cur.execute("DELETE FROM planet_clients")
 
-            # ENHANCED ERROR LOGGING - This will show you exactly what's wrong
+                        # Build insert with client_id column included
+                        all_fields = [
+                            f for f in PlanetClient._meta.concrete_fields
+                            if not f.primary_key or not f.auto_created
+                        ]
+                        col_names   = ', '.join(f.column for f in all_fields)
+                        placeholders = ', '.join(['%s'] * len(all_fields))
+                        rows = [
+                            tuple(item.get(f.attname, None) for f in all_fields)
+                            for item in serializer.validated_data
+                        ]
+                        _cur.executemany(
+                            f"INSERT INTO planet_clients ({col_names}) VALUES ({placeholders})",
+                            rows
+                        )
+                logger.info(f"Saved {len(rows)} PLANET_CLIENTS records for client_id={client_id!r}")
+                return Response(
+                    {"message": "PLANET_CLIENTS records saved", "count": len(rows),
+                     "client_id": client_id},
+                    status=status.HTTP_201_CREATED
+                )
+
+            # Validation error logging
             logger.error(f"Validation failed for PLANET_CLIENTS")
-            logger.error(f"Total errors: {len(serializer.errors)}")
-            
             error_count = 0
             for idx, err in enumerate(serializer.errors):
-                if err:  # Only log records with actual errors
+                if err:
                     error_count += 1
-                    logger.error(f"Record {idx} has validation errors:")
-                    logger.error(f"   Errors: {json.dumps(err, indent=4)}")
-                    
-                    # Show the actual problematic record
+                    logger.error(f"Record {idx} errors: {json.dumps(err, indent=4)}")
                     if idx < len(request.data):
-                        logger.error(f"   Record data: {json.dumps(request.data[idx], indent=4, default=str)}")
-                    
-                    # Stop after first 5 errors to avoid log spam
+                        logger.error(f"   Data: {json.dumps(request.data[idx], indent=4, default=str)}")
                     if error_count >= 5:
-                        logger.error(f"... and {len([e for e in serializer.errors if e])} more records with errors")
                         break
-            
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
-            logger.error(f" PLANET_CLIENTS Exception: {str(e)}")
+            logger.error(f"PLANET_CLIENTS Exception: {str(e)}")
             logger.error(traceback.format_exc())
             if request.data:
                 logger.error(f"Sample record: {json.dumps(request.data[0], indent=2, default=str)}")
             return Response({"error": "Internal server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def delete(self, request):
+        client_id = self._get_client_id(request)
+        from django.db import connection as _conn
+        with _conn.cursor() as _cur:
+            if client_id:
+                _cur.execute("DELETE FROM planet_clients WHERE client_id = %s", [client_id])
+                deleted = _cur.rowcount
+            else:
+                _cur.execute("DELETE FROM planet_clients")
+                deleted = _cur.rowcount
+        logger.info(f"PLANET_CLIENTS - Deleted {deleted} rows (client_id={client_id!r})")
+        return Response({"deleted": deleted, "client_id": client_id}, status=200)
+
     def get(self, request):
-        records = PlanetClient.objects.all()
-        serializer = PlanetClientsSerializer(records, many=True)
+        client_id = self._get_client_id(request)
+        qs = (PlanetClient.objects.filter(client_id=client_id)
+              if client_id else PlanetClient.objects.all())
+        serializer = PlanetClientsSerializer(qs, many=True)
         return Response(serializer.data)
-    
 
 
 class BaseInvMastView(APIView):
@@ -610,3 +702,168 @@ class DQInvMastView(BaseInvMastView):
     model = DQInvMast
     serializer_class = DQInvMastSerializer
     record_type = "DQ InvMast"
+
+
+
+class AccMasterView(APIView):
+    """
+    POST  – deletes acc_master rows for the given client_id, then bulk-inserts
+            fresh records tagged with that client_id.
+            client_id is read from the X-Client-ID request header (or query param
+            ?client_id=).  If omitted, all rows are replaced (backward-compatible).
+    GET   – returns records, optionally filtered by ?client_id=.
+    DELETE– removes all rows for a client_id (called by the sync tool before re-push).
+    """
+
+    def _get_client_id(self, request):
+        return (
+            request.headers.get("X-Client-ID", "").strip()
+            or request.query_params.get("client_id", "").strip()
+        )
+
+    def post(self, request):
+        data = request.data
+        client_id = self._get_client_id(request)
+
+        if not isinstance(data, list):
+            logger.error("AccMaster - Expected a list of records")
+            return Response({"error": "Expected a list of records"}, status=400)
+
+        if not data:
+            logger.warning("AccMaster - Received empty payload")
+            return Response({"message": "No records to process"}, status=200)
+
+        logger.info(f"AccMaster - Received {len(data)} records (client_id={client_id!r})")
+
+        # Inject client_id into every record so the serializer sees it
+        tagged = []
+        for rec in data:
+            r = dict(rec)
+            r.setdefault("client_id", client_id)
+            tagged.append(r)
+
+        for i, sample in enumerate(tagged[:2]):
+            logger.info(f"AccMaster - Sample record {i + 1}: "
+                        f"{json.dumps(sample, indent=2, default=str)}")
+
+        serializer = AccMasterSerializer(data=tagged, many=True)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    # Delete only this client's rows (or all if no client_id)
+                    if client_id:
+                        AccMaster.objects.filter(client_id=client_id).delete()
+                    else:
+                        AccMaster.objects.all().delete()
+                    records = [AccMaster(**item) for item in serializer.validated_data]
+                    AccMaster.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"AccMaster - Saved {len(records)} records for client_id={client_id!r}")
+                return Response(
+                    {"message": "AccMaster records saved", "count": len(records),
+                     "client_id": client_id},
+                    status=status.HTTP_201_CREATED,
+                )
+            except Exception as e:
+                logger.error(f"AccMaster - DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error"}, status=500)
+
+        errors_sample = list(serializer.errors)[:5]
+        logger.error(f"AccMaster - Validation errors (first 5): "
+                     f"{json.dumps(errors_sample, indent=2, default=str)}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        client_id = self._get_client_id(request)
+        if client_id:
+            deleted, _ = AccMaster.objects.filter(client_id=client_id).delete()
+        else:
+            deleted, _ = AccMaster.objects.all().delete()
+        logger.info(f"AccMaster - Deleted {deleted} rows (client_id={client_id!r})")
+        return Response({"deleted": deleted, "client_id": client_id}, status=200)
+
+    def get(self, request):
+        client_id = self._get_client_id(request)
+        qs = AccMaster.objects.filter(client_id=client_id) if client_id else AccMaster.objects.all()
+        serializer = AccMasterSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class AccProductView(APIView):
+    """
+    POST  – deletes acc_product rows for the given client_id, then bulk-inserts
+            fresh records tagged with that client_id.
+    GET   – returns records, optionally filtered by ?client_id=.
+    DELETE– removes all rows for a client_id.
+    """
+
+    def _get_client_id(self, request):
+        return (
+            request.headers.get("X-Client-ID", "").strip()
+            or request.query_params.get("client_id", "").strip()
+        )
+
+    def post(self, request):
+        data = request.data
+        client_id = self._get_client_id(request)
+
+        if not isinstance(data, list):
+            logger.error("AccProduct - Expected a list of records")
+            return Response({"error": "Expected a list of records"}, status=400)
+
+        if not data:
+            logger.warning("AccProduct - Received empty payload")
+            return Response({"message": "No records to process"}, status=200)
+
+        logger.info(f"AccProduct - Received {len(data)} records (client_id={client_id!r})")
+
+        tagged = []
+        for rec in data:
+            r = dict(rec)
+            r.setdefault("client_id", client_id)
+            tagged.append(r)
+
+        for i, sample in enumerate(tagged[:2]):
+            logger.info(f"AccProduct - Sample record {i + 1}: "
+                        f"{json.dumps(sample, indent=2, default=str)}")
+
+        serializer = AccProductSerializer(data=tagged, many=True)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    if client_id:
+                        AccProduct.objects.filter(client_id=client_id).delete()
+                    else:
+                        AccProduct.objects.all().delete()
+                    records = [AccProduct(**item) for item in serializer.validated_data]
+                    AccProduct.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"AccProduct - Saved {len(records)} records for client_id={client_id!r}")
+                return Response(
+                    {"message": "AccProduct records saved", "count": len(records),
+                     "client_id": client_id},
+                    status=status.HTTP_201_CREATED,
+                )
+            except Exception as e:
+                logger.error(f"AccProduct - DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error"}, status=500)
+
+        errors_sample = list(serializer.errors)[:5]
+        logger.error(f"AccProduct - Validation errors (first 5): "
+                     f"{json.dumps(errors_sample, indent=2, default=str)}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        client_id = self._get_client_id(request)
+        if client_id:
+            deleted, _ = AccProduct.objects.filter(client_id=client_id).delete()
+        else:
+            deleted, _ = AccProduct.objects.all().delete()
+        logger.info(f"AccProduct - Deleted {deleted} rows (client_id={client_id!r})")
+        return Response({"deleted": deleted, "client_id": client_id}, status=200)
+
+    def get(self, request):
+        client_id = self._get_client_id(request)
+        qs = AccProduct.objects.filter(client_id=client_id) if client_id else AccProduct.objects.all()
+        serializer = AccProductSerializer(qs, many=True)
+        return Response(serializer.data)
