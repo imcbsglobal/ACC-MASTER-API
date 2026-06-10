@@ -496,22 +496,13 @@ class PlanetClientsRecordView(APIView):
                     status=200,
                 )
 
-            # ── Atomic: delete this client's rows, then insert all ────────────
+            # ── Insert only — the client already called DELETE before posting chunks ──
+            # Deleting here would wipe every previously-pushed chunk, leaving only
+            # the last chunk in the DB (2,015 rows pushed → only 15 saved).
+            # The separate DELETE endpoint handles truncation; POST just inserts.
             with transaction.atomic():
                 from django.db import connection as _conn
                 with _conn.cursor() as _cur:
-                    if client_id:
-                        _cur.execute(
-                            "DELETE FROM planet_clients WHERE client_id = %s",
-                            [client_id],
-                        )
-                        logger.info(
-                            f"PLANET_CLIENTS - Deleted existing rows for client_id={client_id!r}"
-                        )
-                    else:
-                        _cur.execute("DELETE FROM planet_clients")
-                        logger.info("PLANET_CLIENTS - Deleted ALL existing rows (no client_id)")
-
                     _cur.executemany(insert_sql, rows)
 
             logger.info(
@@ -794,11 +785,8 @@ class AccMasterView(APIView):
         if serializer.is_valid():
             try:
                 with transaction.atomic():
-                    # Delete only this client's rows (or all if no client_id)
-                    if client_id:
-                        AccMaster.objects.filter(client_id=client_id).delete()
-                    else:
-                        AccMaster.objects.all().delete()
+                    # Insert only — client calls DELETE before posting chunks.
+                    # Deleting here wipes every prior chunk, leaving only the last one.
                     records = [AccMaster(**item) for item in serializer.validated_data]
                     AccMaster.objects.bulk_create(records, batch_size=1000)
                 logger.info(f"AccMaster - Saved {len(records)} records for client_id={client_id!r}")
@@ -875,10 +863,8 @@ class AccProductView(APIView):
         if serializer.is_valid():
             try:
                 with transaction.atomic():
-                    if client_id:
-                        AccProduct.objects.filter(client_id=client_id).delete()
-                    else:
-                        AccProduct.objects.all().delete()
+                    # Insert only — client calls DELETE before posting chunks.
+                    # Deleting here wipes every prior chunk, leaving only the last one.
                     records = [AccProduct(**item) for item in serializer.validated_data]
                     AccProduct.objects.bulk_create(records, batch_size=1000)
                 logger.info(f"AccProduct - Saved {len(records)} records for client_id={client_id!r}")
