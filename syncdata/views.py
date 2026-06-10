@@ -422,67 +422,111 @@ class PlanetClientsRecordView(APIView):
     def post(self, request):
         try:
             client_id = self._get_client_id(request)
-            logger.info(f"PLANET_CLIENTS - Received {len(request.data)} records "
+            data = request.data
+
+            if not isinstance(data, list):
+                return Response({"error": "Expected a list of records"}, status=400)
+            if not data:
+                return Response({"message": "No records to process"}, status=200)
+
+            logger.info(f"PLANET_CLIENTS - Received {len(data)} records "
                         f"(client_id={client_id!r})")
 
-            for i, record in enumerate(request.data[:2]):
+            for i, record in enumerate(data[:2]):
                 logger.info(f"Sample record {i}: {json.dumps(record, indent=2, default=str)}")
 
-            # Inject client_id into every record
-            tagged = []
-            for rec in request.data:
-                r = dict(rec)
-                r.setdefault("client_id", client_id)
-                tagged.append(r)
+            # ── Build column list directly from the model (skip auto PK) ──────
+            all_fields = [
+                f for f in PlanetClient._meta.concrete_fields
+                if not f.primary_key or not f.auto_created
+            ]
+            col_names    = ', '.join(f.column for f in all_fields)
+            placeholders = ', '.join(['%s'] * len(all_fields))
+            insert_sql   = (
+                f"INSERT INTO planet_clients ({col_names}) VALUES ({placeholders})"
+            )
 
-            serializer = PlanetClientsSerializer(data=tagged, many=True)
-            if serializer.is_valid():
-                with transaction.atomic():
-                    from django.db import connection as _conn
-                    with _conn.cursor() as _cur:
-                        # Delete only this client's rows (or all if no client_id)
-                        if client_id:
-                            _cur.execute(
-                                "DELETE FROM planet_clients WHERE client_id = %s",
-                                [client_id]
-                            )
+            # ── Coerce each incoming record directly — no serializer ──────────
+            # Bypassing PlanetClientsSerializer.is_valid() here is intentional.
+            # DRF's ModelSerializer with primary_key=True on `code` runs a
+            # UniqueValidator against the DB for every row, rejecting any code
+            # that already exists — even though we are about to delete those rows.
+            # That caused all 314 existing-code rows to fail validation silently,
+            # leaving only the 15 brand-new codes to insert (329 fetched → 15 saved).
+            # Raw SQL bypasses UniqueValidator entirely and inserts all rows.
+            from datetime import date as _date
+            rows    = []
+            skipped = 0
+            for rec in data:
+                code = str(rec.get("code", "") or "").strip()
+                if not code:
+                    skipped += 1
+                    continue
+
+                row = []
+                for f in all_fields:
+                    val = rec.get(f.attname, rec.get(f.column))
+
+                    # Inject client_id when missing
+                    if f.attname == "client_id" and (val is None or val == ""):
+                        val = client_id
+
+                    # Coerce installationdate -> YYYY-MM-DD or None
+                    if f.attname == "installationdate" and val:
+                        if isinstance(val, _date):
+                            val = val.isoformat()
+                        elif isinstance(val, str) and val.strip():
+                            val = val[:10]
                         else:
-                            _cur.execute("DELETE FROM planet_clients")
+                            val = None
 
-                        # Build insert with client_id column included
-                        all_fields = [
-                            f for f in PlanetClient._meta.concrete_fields
-                            if not f.primary_key or not f.auto_created
-                        ]
-                        col_names   = ', '.join(f.column for f in all_fields)
-                        placeholders = ', '.join(['%s'] * len(all_fields))
-                        rows = [
-                            tuple(item.get(f.attname, None) for f in all_fields)
-                            for item in serializer.validated_data
-                        ]
-                        _cur.executemany(
-                            f"INSERT INTO planet_clients ({col_names}) VALUES ({placeholders})",
-                            rows
-                        )
-                logger.info(f"Saved {len(rows)} PLANET_CLIENTS records for client_id={client_id!r}")
+                    # Blank strings -> None for nullable columns
+                    if val == "" and f.null:
+                        val = None
+
+                    row.append(val)
+                rows.append(tuple(row))
+
+            if skipped:
+                logger.warning(f"PLANET_CLIENTS - Skipped {skipped} records missing 'code'")
+
+            if not rows:
                 return Response(
-                    {"message": "PLANET_CLIENTS records saved", "count": len(rows),
-                     "client_id": client_id},
-                    status=status.HTTP_201_CREATED
+                    {"message": "No valid records to insert", "skipped": skipped},
+                    status=200,
                 )
 
-            # Validation error logging
-            logger.error(f"Validation failed for PLANET_CLIENTS")
-            error_count = 0
-            for idx, err in enumerate(serializer.errors):
-                if err:
-                    error_count += 1
-                    logger.error(f"Record {idx} errors: {json.dumps(err, indent=4)}")
-                    if idx < len(request.data):
-                        logger.error(f"   Data: {json.dumps(request.data[idx], indent=4, default=str)}")
-                    if error_count >= 5:
-                        break
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            # ── Atomic: delete this client's rows, then insert all ────────────
+            with transaction.atomic():
+                from django.db import connection as _conn
+                with _conn.cursor() as _cur:
+                    if client_id:
+                        _cur.execute(
+                            "DELETE FROM planet_clients WHERE client_id = %s",
+                            [client_id],
+                        )
+                        logger.info(
+                            f"PLANET_CLIENTS - Deleted existing rows for client_id={client_id!r}"
+                        )
+                    else:
+                        _cur.execute("DELETE FROM planet_clients")
+                        logger.info("PLANET_CLIENTS - Deleted ALL existing rows (no client_id)")
+
+                    _cur.executemany(insert_sql, rows)
+
+            logger.info(
+                f"PLANET_CLIENTS - Saved {len(rows)} records for client_id={client_id!r} "
+                f"(skipped {skipped} without code)"
+            )
+            return Response(
+                {
+                    "message":   "PLANET_CLIENTS records saved",
+                    "count":     len(rows),
+                    "skipped":   skipped,
+                    "client_id": client_id,
+                },
+                status=status.HTTP_201_CREATED,
+            )
 
         except Exception as e:
             logger.error(f"PLANET_CLIENTS Exception: {str(e)}")
