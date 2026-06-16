@@ -479,3 +479,13 @@ class AccProductSerializer(serializers.ModelSerializer):
             if data.get(field) is None:
                 data[field] = ''
         return super().to_internal_value(data)
+from .models import AccDepartment
+
+class AccDepartmentSerializer(serializers.ModelSerializer):
+    department_id = serializers.CharField(max_length=30)
+    department    = serializers.CharField(max_length=100)
+    client_id     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+
+    class Meta:
+        model  = AccDepartment
+        fields = ['department_id', 'department', 'client_id']

@@ -897,3 +897,42 @@ class AccProductView(APIView):
         qs = AccProduct.objects.filter(client_id=client_id) if client_id else AccProduct.objects.all()
         serializer = AccProductSerializer(qs, many=True)
         return Response(serializer.data)
+from .models import AccDepartment
+from .serializers import AccDepartmentSerializer
+
+class AccDepartmentView(APIView):
+    def _get_client_id(self, request):
+        return (
+            request.headers.get('X-Client-ID', '').strip()
+            or request.query_params.get('client_id', '').strip()
+        )
+
+    def post(self, request):
+        data      = request.data
+        client_id = self._get_client_id(request)
+        if not isinstance(data, list):
+            return Response({'error': 'Expected a list of records'}, status=400)
+        if not data:
+            return Response({'message': 'No records to process'}, status=200)
+        tagged = [{**rec, 'client_id': rec.get('client_id') or client_id} for rec in data]
+        serializer = AccDepartmentSerializer(data=tagged, many=True)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    records = [AccDepartment(**item) for item in serializer.validated_data]
+                    AccDepartment.objects.bulk_create(records, batch_size=1000)
+                return Response({'message': 'AccDepartment records saved', 'count': len(records)}, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f'AccDepartment - DB error: {e}')
+                return Response({'error': 'Database error'}, status=500)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        client_id = self._get_client_id(request)
+        deleted, _ = AccDepartment.objects.filter(client_id=client_id).delete() if client_id else AccDepartment.objects.all().delete()
+        return Response({'deleted': deleted}, status=200)
+
+    def get(self, request):
+        client_id = self._get_client_id(request)
+        qs = AccDepartment.objects.filter(client_id=client_id) if client_id else AccDepartment.objects.all()
+        return Response(AccDepartmentSerializer(qs, many=True).data)

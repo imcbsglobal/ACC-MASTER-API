@@ -278,3 +278,14 @@ class DQInvMast(ManagedInvMastModel):
     class Meta:
         db_table = 'syncdata_dqrecord_mast'
         managed = True
+class AccDepartment(models.Model):
+    department_id = models.CharField(max_length=30, primary_key=True)
+    department    = models.CharField(max_length=100)
+    client_id     = models.CharField(max_length=50, blank=True, default='')
+
+    class Meta:
+        managed  = False
+        db_table = 'acc_departments'
+
+    def __str__(self):
+        return self.department
