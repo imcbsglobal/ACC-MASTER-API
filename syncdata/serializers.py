@@ -5,7 +5,7 @@ from .models import (
     IMC1RecordLedgers, IMC2RecordLedgers, PlanetLedgers,
     SysmacRecordLedgers, DQRecordsLedgers,
     PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast,
-    AccMaster, AccProduct,
+    AccMaster, AccProduct, AccDepartment,
 )
 import logging
 from decimal import Decimal, InvalidOperation
@@ -479,13 +479,24 @@ class AccProductSerializer(serializers.ModelSerializer):
             if data.get(field) is None:
                 data[field] = ''
         return super().to_internal_value(data)
-from .models import AccDepartment
+
+
+# ── AccDepartments — managed=False, NO auto id ────────────────────────────────
+
+# ── AccDepartment — managed=False, NO auto id ────────────────────────────────
 
 class AccDepartmentSerializer(serializers.ModelSerializer):
-    department_id = serializers.CharField(max_length=30)
-    department    = serializers.CharField(max_length=100)
+    department_id = serializers.CharField(max_length=30)          # required (it's the PK)
+    department    = serializers.CharField(max_length=100, required=False, allow_null=True, allow_blank=True)
     client_id     = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
 
     class Meta:
         model  = AccDepartment
+        # managed=False → no auto id column
         fields = ['department_id', 'department', 'client_id']
+
+    def to_internal_value(self, data):
+        data = data.copy()
+        if data.get('department') is None:
+            data['department'] = ''
+        return super().to_internal_value(data)

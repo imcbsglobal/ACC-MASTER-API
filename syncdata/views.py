@@ -785,8 +785,12 @@ class AccMasterView(APIView):
         if serializer.is_valid():
             try:
                 with transaction.atomic():
-                    # Insert only — client calls DELETE before posting chunks.
-                    # Deleting here wipes every prior chunk, leaving only the last one.
+                    # Delete existing rows for this client before re-inserting
+                    if client_id:
+                        deleted, _ = AccMaster.objects.filter(client_id=client_id).delete()
+                    else:
+                        deleted, _ = AccMaster.objects.all().delete()
+                    logger.info(f"AccMaster - Deleted {deleted} existing rows (client_id={client_id!r})")
                     records = [AccMaster(**item) for item in serializer.validated_data]
                     AccMaster.objects.bulk_create(records, batch_size=1000)
                 logger.info(f"AccMaster - Saved {len(records)} records for client_id={client_id!r}")
@@ -816,7 +820,14 @@ class AccMasterView(APIView):
 
     def get(self, request):
         client_id = self._get_client_id(request)
-        qs = AccMaster.objects.filter(client_id=client_id) if client_id else AccMaster.objects.all()
+        super_code = request.query_params.get('super_code', '').strip()
+
+        qs = AccMaster.objects.all()
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        if super_code:
+            qs = qs.filter(super_code=super_code)
+
         serializer = AccMasterSerializer(qs, many=True)
         return Response(serializer.data)
 
@@ -863,8 +874,12 @@ class AccProductView(APIView):
         if serializer.is_valid():
             try:
                 with transaction.atomic():
-                    # Insert only — client calls DELETE before posting chunks.
-                    # Deleting here wipes every prior chunk, leaving only the last one.
+                    # Delete existing rows for this client before re-inserting
+                    if client_id:
+                        deleted, _ = AccProduct.objects.filter(client_id=client_id).delete()
+                    else:
+                        deleted, _ = AccProduct.objects.all().delete()
+                    logger.info(f"AccProduct - Deleted {deleted} existing rows (client_id={client_id!r})")
                     records = [AccProduct(**item) for item in serializer.validated_data]
                     AccProduct.objects.bulk_create(records, batch_size=1000)
                 logger.info(f"AccProduct - Saved {len(records)} records for client_id={client_id!r}")
@@ -914,17 +929,88 @@ class AccDepartmentView(APIView):
             return Response({'error': 'Expected a list of records'}, status=400)
         if not data:
             return Response({'message': 'No records to process'}, status=200)
+
+        logger.info(f'AccDepartment - Received {len(data)} records (client_id={client_id!r})')
+
+        # Tag every record with client_id so the serializer/insert sees it,
+        # same pattern as AccMasterView / AccProductView above.
         tagged = [{**rec, 'client_id': rec.get('client_id') or client_id} for rec in data]
+
+        for i, sample in enumerate(tagged[:2]):
+            logger.info(f'AccDepartment - Sample record {i + 1}: '
+                        f'{json.dumps(sample, indent=2, default=str)}')
+
         serializer = AccDepartmentSerializer(data=tagged, many=True)
         if serializer.is_valid():
             try:
                 with transaction.atomic():
-                    records = [AccDepartment(**item) for item in serializer.validated_data]
-                    AccDepartment.objects.bulk_create(records, batch_size=1000)
-                return Response({'message': 'AccDepartment records saved', 'count': len(records)}, status=status.HTTP_201_CREATED)
+                    from django.db import connection as _conn
+                    with _conn.cursor() as _cur:
+                        # Delete existing rows for this client before re-inserting.
+                        # NOTE: department_id values are NOT guaranteed unique across
+                        # clients (e.g. every DSN may have department_id='001'). Scoping
+                        # the delete by client_id is correct for THIS client's rows, but
+                        # if another client's row with the same department_id is still
+                        # present, a plain INSERT/bulk_create collides on the PK and the
+                        # whole batch fails — which is what was happening here. Raw SQL
+                        # below bypasses ModelSerializer's auto UniqueValidator (the same
+                        # issue already fixed on AccMaster/AccProduct/PlanetClient) and
+                        # uses UPSERT semantics so a leftover row from another client
+                        # with the same department_id is updated in place instead of
+                        # blowing up the transaction.
+                        if client_id:
+                            _cur.execute(
+                                'DELETE FROM acc_departments WHERE client_id = %s',
+                                [client_id],
+                            )
+                            deleted = _cur.rowcount
+                        else:
+                            _cur.execute('DELETE FROM acc_departments')
+                            deleted = _cur.rowcount
+                        logger.info(f'AccDepartment - Deleted {deleted} existing rows (client_id={client_id!r})')
+
+                        fields = [
+                            f.column for f in AccDepartment._meta.concrete_fields
+                            if not f.primary_key or not f.auto_created
+                        ]
+                        col_names    = ', '.join(fields)
+                        placeholders = ', '.join(['%s'] * len(fields))
+                        # NOTE: department_id is NOT globally unique — every client's
+                        # source DB legitimately has the same department codes (AC, AS,
+                        # CT, etc). The real uniqueness key for this table is the pair
+                        # (department_id, client_id). The DELETE above already clears any
+                        # rows for THIS client_id, so a plain INSERT is correct here and
+                        # does not need ON CONFLICT. An ON CONFLICT (department_id) clause
+                        # was tried previously but that's wrong: it overwrote OTHER
+                        # clients' rows that happened to share the same department_id,
+                        # which is why only the most-recently-synced client's rows
+                        # survived. Make sure acc_departments has a composite UNIQUE
+                        # constraint on (department_id, client_id) in Postgres, not a
+                        # single-column one on department_id alone.
+                        sql = (
+                            f'INSERT INTO acc_departments ({col_names}) '
+                            f'VALUES ({placeholders})'
+                        )
+                        rows = [
+                            tuple(item.get(f.attname, None) for f in AccDepartment._meta.concrete_fields
+                                  if not f.primary_key or not f.auto_created)
+                            for item in serializer.validated_data
+                        ]
+                        _cur.executemany(sql, rows)
+
+                logger.info(f'AccDepartment - Saved {len(rows)} records for client_id={client_id!r}')
+                return Response(
+                    {'message': 'AccDepartment records saved', 'count': len(rows), 'client_id': client_id},
+                    status=status.HTTP_201_CREATED,
+                )
             except Exception as e:
                 logger.error(f'AccDepartment - DB error: {e}')
-                return Response({'error': 'Database error'}, status=500)
+                logger.error(traceback.format_exc())
+                return Response({'error': 'Database error', 'detail': str(e)}, status=500)
+
+        errors_sample = list(serializer.errors)[:5]
+        logger.error(f'AccDepartment - Validation errors (first 5): '
+                     f'{json.dumps(errors_sample, indent=2, default=str)}')
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request):

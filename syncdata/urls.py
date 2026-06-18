@@ -9,6 +9,7 @@ from .views import (
 )
 
 urlpatterns = [
+    # SYNC - API'S
     path('imc1/', IMC1RecordView.as_view()),
     path('imc1-ledgers/', IMC1LedgersView.as_view()),
     path('imc1-invmast/', IMC1InvMastView.as_view()),
@@ -32,5 +33,5 @@ urlpatterns = [
     path('rrc-clients/',     PlanetClientsRecordView.as_view()),
     path('acc-master/',      AccMasterView.as_view()),
     path('acc-product/',     AccProductView.as_view()),
-    path('acc-departments/', AccDepartmentView.as_view()),
+    path('acc-departments/', AccDepartmentView.as_view()),  # ← new
 ]

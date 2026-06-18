@@ -231,7 +231,22 @@ class AccProduct(models.Model):
         db_table = 'acc_product'
 
     def __str__(self):
-        return self.name or self.code        
+        return self.name or self.code
+
+
+class AccDepartment(models.Model):
+    department_id = models.CharField(max_length=30, primary_key=True)   # explicit PK, no phantom id column
+    department = models.CharField(max_length=100, blank=True, null=True)
+    # client_id tags which DSN/client this row was synced from.
+    # ADD COLUMN: ALTER TABLE acc_departments ADD COLUMN client_id VARCHAR(50) NOT NULL DEFAULT '';
+    client_id = models.CharField(max_length=50, blank=True, default='')
+
+    class Meta:
+        managed = False          # Table already exists; Django won't migrate it
+        db_table = 'acc_departments'
+
+    def __str__(self):
+        return self.department or self.department_id
 
 
 
@@ -278,14 +293,3 @@ class DQInvMast(ManagedInvMastModel):
     class Meta:
         db_table = 'syncdata_dqrecord_mast'
         managed = True
-class AccDepartment(models.Model):
-    department_id = models.CharField(max_length=30, primary_key=True)
-    department    = models.CharField(max_length=100)
-    client_id     = models.CharField(max_length=50, blank=True, default='')
-
-    class Meta:
-        managed  = False
-        db_table = 'acc_departments'
-
-    def __str__(self):
-        return self.department
