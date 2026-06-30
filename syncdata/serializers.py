@@ -5,7 +5,7 @@ from .models import (
     IMC1RecordLedgers, IMC2RecordLedgers, PlanetLedgers,
     SysmacRecordLedgers, DQRecordsLedgers,
     PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast,
-    AccMaster, AccProduct, AccDepartment,
+    AccMaster, AccProduct, AccDepartment, AccLedger,
 )
 import logging
 from decimal import Decimal, InvalidOperation
@@ -499,4 +499,58 @@ class AccDepartmentSerializer(serializers.ModelSerializer):
         data = data.copy()
         if data.get('department') is None:
             data['department'] = ''
+        return super().to_internal_value(data)
+    
+
+# ── AccLedger — managed=True, Django owns the id PK ──────────────────────────
+
+class AccLedgerSerializer(serializers.ModelSerializer):
+    code        = serializers.CharField(max_length=30, required=True)
+    particulars = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    debit       = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    credit      = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    entry_mode  = serializers.CharField(max_length=30, required=False, allow_null=True, allow_blank=True)
+    voucher_no  = serializers.DecimalField(max_digits=15, decimal_places=5, required=False, allow_null=True)
+    narration   = serializers.CharField(max_length=250, required=False, allow_null=True, allow_blank=True)
+    date        = serializers.DateField(required=False, allow_null=True)
+    client_id   = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+
+    class Meta:
+        model  = AccLedger
+        fields = ['code', 'particulars', 'debit', 'credit',
+                  'entry_mode', 'voucher_no', 'narration', 'date', 'client_id']
+
+    def to_internal_value(self, data):
+        data = data.copy()
+
+        # Parse date from common formats
+        if data.get('date'):
+            if isinstance(data['date'], str):
+                for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%d-%m-%Y'):
+                    try:
+                        data['date'] = datetime.strptime(data['date'], fmt).date().strftime('%Y-%m-%d')
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    logger.warning(f"AccLedger: could not parse date {data['date']!r}")
+                    data['date'] = None
+        elif data.get('date') == '':
+            data['date'] = None
+
+        for field in ('debit', 'credit', 'voucher_no'):
+            val = data.get(field)
+            if val is None or val == '':
+                data[field] = None
+            else:
+                try:
+                    data[field] = str(Decimal(str(val)))
+                except (ValueError, InvalidOperation):
+                    logger.warning(f"AccLedger: cannot convert {field}={val!r} to Decimal")
+                    data[field] = None
+
+        for field in ('particulars', 'entry_mode', 'narration'):
+            if data.get(field) is None:
+                data[field] = ''
+
         return super().to_internal_value(data)

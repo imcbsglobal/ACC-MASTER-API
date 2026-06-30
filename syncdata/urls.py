@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    AccMasterView, AccProductView, AccDepartmentView,
+    AccLedgerView, AccMasterView, AccProductView, AccDepartmentView,
     IMC1RecordView, IMC1LedgersView, IMC1InvMastView,
     IMC2RecordView, IMC2LedgersView, IMC2InvMastView,
     SysmacRecordView, SysmacLedgersView, SysmacInvMastView,
@@ -33,5 +33,6 @@ urlpatterns = [
     path('rrc-clients/',     PlanetClientsRecordView.as_view()),
     path('acc-master/',      AccMasterView.as_view()),
     path('acc-product/',     AccProductView.as_view()),
-    path('acc-departments/', AccDepartmentView.as_view()),  # ← new
+    path('acc-departments/', AccDepartmentView.as_view()),
+    path('acc-ledgers/', AccLedgerView.as_view()),
 ]

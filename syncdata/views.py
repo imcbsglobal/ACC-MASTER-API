@@ -2,8 +2,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
-from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetLedgers, PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast , AccMaster, AccProduct
-from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer, IMC1LedgersSerializer, IMC2LedgersSerializer, SysmacLedgersSerializer, DQLedgersSerializer, PlanetLedgersSerializer, PlanetInvMastSerializer, IMC1InvMastSerializer, IMC2InvMastSerializer, SysmacInvMastSerializer, DQInvMastSerializer ,AccMasterSerializer, AccProductSerializer
+from .models import IMC1Record, IMC2Record, SysmacRecord, DQRecord, PlanetMaster, PlanetClient, IMC1RecordLedgers, IMC2RecordLedgers, SysmacRecordLedgers, DQRecordsLedgers, PlanetLedgers, PlanetInvMast, IMC1InvMast, IMC2InvMast, SysmacInvMast, DQInvMast, AccMaster, AccProduct, AccLedger
+from .serializers import IMC1Serializer, IMC2Serializer, SysmacSerializer, DQSerializer, PlanetClientsSerializer, PlanetMasterSerializer, IMC1LedgersSerializer, IMC2LedgersSerializer, SysmacLedgersSerializer, DQLedgersSerializer, PlanetLedgersSerializer, PlanetInvMastSerializer, IMC1InvMastSerializer, IMC2InvMastSerializer, SysmacInvMastSerializer, DQInvMastSerializer, AccMasterSerializer, AccProductSerializer, AccLedgerSerializer
 import logging
 import json
 import traceback
@@ -1022,3 +1022,89 @@ class AccDepartmentView(APIView):
         client_id = self._get_client_id(request)
         qs = AccDepartment.objects.filter(client_id=client_id) if client_id else AccDepartment.objects.all()
         return Response(AccDepartmentSerializer(qs, many=True).data)
+    
+
+
+class AccLedgerView(APIView):
+    """
+    POST  – deletes acc_ledgers rows for the given client_id, then bulk-inserts
+            fresh records tagged with that client_id.
+    GET   – returns records, optionally filtered by ?client_id= (and ?code=).
+    DELETE– removes all rows for a client_id (called by sync tool before re-push).
+    """
+
+    def _get_client_id(self, request):
+        return (
+            request.headers.get("X-Client-ID", "").strip()
+            or request.query_params.get("client_id", "").strip()
+        )
+
+    def post(self, request):
+        data = request.data
+        client_id = self._get_client_id(request)
+
+        if not isinstance(data, list):
+            logger.error("AccLedger - Expected a list of records")
+            return Response({"error": "Expected a list of records"}, status=400)
+
+        if not data:
+            logger.warning("AccLedger - Received empty payload")
+            return Response({"message": "No records to process"}, status=200)
+
+        logger.info(f"AccLedger - Received {len(data)} records (client_id={client_id!r})")
+
+        tagged = []
+        for rec in data:
+            r = dict(rec)
+            r.setdefault("client_id", client_id)
+            tagged.append(r)
+
+        for i, sample in enumerate(tagged[:2]):
+            logger.info(f"AccLedger - Sample record {i + 1}: "
+                        f"{json.dumps(sample, indent=2, default=str)}")
+
+        serializer = AccLedgerSerializer(data=tagged, many=True)
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    # NOTE: Do NOT delete here — the sync tool sends a separate
+                    # DELETE request before the first chunk. Deleting on every
+                    # POST would wipe previously inserted chunks, leaving only
+                    # the last chunk's rows in the table.
+                    records = [AccLedger(**item) for item in serializer.validated_data]
+                    AccLedger.objects.bulk_create(records, batch_size=1000)
+                logger.info(f"AccLedger - Saved {len(records)} records for client_id={client_id!r}")
+                return Response(
+                    {"message": "AccLedger records saved", "count": len(records),
+                     "client_id": client_id},
+                    status=status.HTTP_201_CREATED,
+                )
+            except Exception as e:
+                logger.error(f"AccLedger - DB error: {e}")
+                logger.error(traceback.format_exc())
+                return Response({"error": "Database error", "detail": str(e)}, status=500)
+
+        errors_sample = list(serializer.errors)[:5]
+        logger.error(f"AccLedger - Validation errors (first 5): "
+                     f"{json.dumps(errors_sample, indent=2, default=str)}")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        client_id = self._get_client_id(request)
+        if client_id:
+            deleted, _ = AccLedger.objects.filter(client_id=client_id).delete()
+        else:
+            deleted, _ = AccLedger.objects.all().delete()
+        logger.info(f"AccLedger - Deleted {deleted} rows (client_id={client_id!r})")
+        return Response({"deleted": deleted, "client_id": client_id}, status=200)
+
+    def get(self, request):
+        client_id = self._get_client_id(request)
+        code = request.query_params.get('code', '').strip()
+        qs = AccLedger.objects.all()
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        if code:
+            qs = qs.filter(code=code)
+        serializer = AccLedgerSerializer(qs, many=True)
+        return Response(serializer.data)

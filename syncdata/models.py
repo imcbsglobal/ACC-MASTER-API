@@ -262,6 +262,29 @@ class BaseInvMastModel(models.Model):
     class Meta:
         abstract = True
 
+
+class AccLedger(models.Model):
+    # Django-managed table (owns its own auto id PK).
+    # Ledger rows have no unique natural key in the synced subset,
+    # so we let Django create the id column and scope by client_id.
+    code = models.CharField(max_length=30)
+    particulars = models.CharField(max_length=250, blank=True, null=True)
+    debit = models.DecimalField(max_digits=15, decimal_places=5, blank=True, null=True)
+    credit = models.DecimalField(max_digits=15, decimal_places=5, blank=True, null=True)
+    entry_mode = models.CharField(max_length=30, blank=True, null=True)
+    voucher_no = models.DecimalField(max_digits=15, decimal_places=5, blank=True, null=True)
+    narration = models.CharField(max_length=250, blank=True, null=True)
+    date = models.DateField(blank=True, null=True)
+    client_id = models.CharField(max_length=50, blank=True, default='')
+
+    class Meta:
+        db_table = 'acc_ledgers'
+        managed = True
+
+
+
+
+
 class ManagedInvMastModel(BaseInvMastModel):
     """Base model for managed tables with synced_at field"""
     
